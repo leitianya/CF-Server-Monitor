@@ -288,14 +288,8 @@ export async function monthlyCleanup(db) {
     clearSiteSettingsCache();
     
     // 1. 删除旧的 metrics_history_old 表（如果存在）
-    const oldTable = await db.prepare(
-      `SELECT name FROM sqlite_master WHERE type='table' AND name='metrics_history_old'`
-    ).first();
-    
-    if (oldTable) {
-      await db.prepare(`DROP TABLE metrics_history_old`).run();
-      console.log('[Cleanup] 已删除旧的 metrics_history_old 表');
-    }
+    await db.prepare(`DROP TABLE IF EXISTS metrics_history_old`).run();
+    console.log('[Cleanup] 已删除旧的 metrics_history_old 表');
     
     // 2. 将 metrics_history 重命名为 metrics_history_old
     const currentTable = await db.prepare(

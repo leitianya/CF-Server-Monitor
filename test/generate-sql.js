@@ -92,7 +92,7 @@ let sql = `-- CF Server Monitor 模拟数据
 
 -- 清空现有数据（注意顺序：先删子表，再删主表）
 DELETE FROM metrics_history;
-DROP TABLE metrics_history_old;
+DROP TABLE IF EXISTS metrics_history_old;
 DELETE FROM servers;
 DELETE FROM settings;
 

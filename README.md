@@ -2,10 +2,15 @@
 
 一个基于 Cloudflare Workers + D1 的多服务器监控探针系统，支持实时监控、历史数据查看、延迟追踪、地图展示等功能。兼容主流Linux系统，Alpine Linux，OpenWrt，Windows系统。**演示地址**：<https://tz.dashdeep.dpdns.org/>
 
+注意：
+
+- <= 2.6.9 版本,使用方式一部署方式，需要在Workers & Pages页面，点击 **Settings**，修改Build configuration的Deploy command为：`npx wrangler deploy --keep-vars`，再同步数据，否则会导致API\_SECRET丢失。
+
 **当前版本：V2.7.0**
 - v2.7.0 将每日数据清理改为每月1号执行的表轮换任务, 删除旧表将不再扣除D1消耗,前端图表支持查看最长7天的历史数据
-- v2.6.9 紧急修复地图显示问题，重构OpenWrt安装脚本，新增OpenRC服务支持
-- v2.6.8 修复网卡统计误统计非目标网卡流量的问题,修复Alpine环境UDP连接数统计错误,本次更新需要重新安装脚本才能生效
+- V2.6.10 修复了方式一部署方式，同步后丢失API\_SECRET的问题
+- V2.6.9 修复地图显示问题，重构OpenWrt安装脚本，新增OpenRC服务支持
+- V2.6.8 修复网卡统计误统计非目标网卡流量的问题,修复Alpine环境UDP连接数统计错误,本次更新需要重新安装脚本才能生效
 - v2.6.7 增加了月流量统计校正功能，以及首页流量统计展示
 - v2.6.6 增加上报间隔，Ping方式，流量重置日入库功能
 - V2.6.5 修复了部分系统启动时间获取错误的问题，TCP/UDP上报格式错误导致失败问题，新增详情页面实时网速展示
@@ -54,7 +59,8 @@
 4. 选择 Continue with GitHub（第一次使用需要连接 GitHub 账户），选择本项目
 5. Project Name填写：`cf-server-monitor`,小写即可，可按自己需求设置
 6. Build command 填写：`npm run build:frontend`
-7. 点击 **Deploy**，成功会在底部显示`✨ Success! Build completed.`
+7. Deploy command 填写：`npx wrangler deploy --keep-vars`
+8. 点击 **Deploy**，成功会在底部显示`✨ Success! Build completed.`
 
 ### 第三步：配置环境变量
 
@@ -554,6 +560,7 @@ CF-Server-Monitor/
 
 **Q: 部署后返回API\_SECRET is required**
 
+如果是部署后丢失API_SECRET，请在Workers & Pages页面，点击 **Settings**，修改Build configuration的Deploy command为：`npx wrangler deploy --keep-vars`，重新设置API_SECRET，下次部署会继续保留。
 如果是GitHub Action 自动部署，确保在 GitHub Secrets 中设置了 API\_SECRET 密钥。
 如果是一键部署，确保在Cloudflare Workers & Pages 中设置了 API\_SECRET 密钥。
 
@@ -717,4 +724,3 @@ MIT License
 - [Chart.js](https://www.chartjs.org/)
 - [Leaflet](https://leafletjs.com/)
 - 感谢 [LINUX DO](https://linux.do/) 社区的支持与推广
-

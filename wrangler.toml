@@ -15,9 +15,6 @@ crons = ["* * 1 * *", "*/1 * * * *"]
 directory = "./dist"
 binding = "ASSETS"
 
-[vars]
-API_SECRET = ""
-
 [[d1_databases]]
 binding = "DB"
 database_name = "server-monitor-db"

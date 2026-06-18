@@ -682,59 +682,114 @@ EOF
                 esac
             done < "${CONFIG_FILE}"
         fi
-        
-        if [ -n "${RX_CORRECTION}" ] || [ -n "${TX_CORRECTION}" ]; then
-            step "应用流量校正..."
-            rm -f "${OLD_TRAFFIC_DATA_FILE}" 2>/dev/null || true
-            
-            mkdir -p "${CONFIG_DIR}" 2>/dev/null || true
-            local now_ts=$(date '+%s')
-            local rx_correction_bytes=0 tx_correction_bytes=0
-            local current_rx=$(awk 'NR>2 && $1~/^(eth|en|wl)[a-z0-9]*:/{rx+=$2}END{printf "%.0f", rx}' /proc/net/dev 2>/dev/null || echo 0)
-            local current_tx=$(awk 'NR>2 && $1~/^(eth|en|wl)[a-z0-9]*:/{tx+=$10}END{printf "%.0f", tx}' /proc/net/dev 2>/dev/null || echo 0)
-            [ -n "${RX_CORRECTION}" ] && echo "${RX_CORRECTION}" | awk '{exit($1 == 0)}' 2>/dev/null && rx_correction_bytes=$(echo "${RX_CORRECTION}" | awk '{printf "%.0f", $1 * 1024 * 1024 * 1024}')
-            [ -n "${TX_CORRECTION}" ] && echo "${TX_CORRECTION}" | awk '{exit($1 == 0)}' 2>/dev/null && tx_correction_bytes=$(echo "${TX_CORRECTION}" | awk '{printf "%.0f", $1 * 1024 * 1024 * 1024}')
-            echo "${RX_CORRECTION}" | awk '{exit($1 == 0)}' 2>/dev/null && info "下行流量校正: ${RX_CORRECTION}GB"
-            echo "${TX_CORRECTION}" | awk '{exit($1 == 0)}' 2>/dev/null && info "上行流量校正: ${TX_CORRECTION}GB"
-            
-            cat > "${TRAFFIC_DATA_FILE}" << EOF
-RX_PREV=${current_rx}
-TX_PREV=${current_tx}
-RX_PERIOD=${rx_correction_bytes}
-TX_PERIOD=${tx_correction_bytes}
-LAST_CHECK=${now_ts}
-PERIOD_START=0
-EOF
-        fi
     else
         if [ -z "${SERVER_ID}" ] || [ -z "${SECRET}" ] || [ -z "${WORKER_URL}" ]; then
-            echo -e "${RED}错误: 运行所需的入参不完整。${NC}\n"
-            echo "用法:"
-            echo "  bash $0 install -id=SERVER_ID -secret=SECRET -url=WORKER_URL [选项]"
-            echo ""
-            echo "必需参数:"
-            echo "  -id=xxx        服务器ID"
-            echo "  -secret=xxx    密钥"
-            echo "  -url=xxx       上报地址"
-            echo ""
-            echo "可选参数:"
-            echo "  -interval=N    上报间隔(秒)，默认60"
-            echo "  -ping=TYPE     探测类型: http | tcp，默认http"
-            echo "  -ct=HOST       自定义CT测试节点"
-            echo "  -cu=HOST       自定义CU测试节点"
-            echo "  -cm=HOST       自定义CM测试节点"
-            echo "  -bd=HOST       自定义BD测试节点"
-            echo "  -reset_day=N   流量重置日(1-31)，默认1"
-            echo "  -rx_correction=N  下行流量校正(GB)，修改当月下行数据"
-            echo "  -tx_correction=N  上行流量校正(GB)，修改当月上行数据"
-            echo ""
-            echo "示例:"
-            echo "  bash $0 install -id=server123 -secret=abc123 -url=https://worker.example.com"
-            echo "  bash $0 install -id=server123 -secret=abc123 -url=https://worker.example.com -interval=30 -ping=tcp"
-            echo "  bash $0 install -id=server123 -secret=abc123 -url=https://worker.example.com -ct=ct.example.com -cu=cu.example.com"
-            echo "  bash $0 install -id=server123 -secret=abc123 -url=https://worker.example.com -reset_day=15"
-            echo "  bash $0 install -id=server123 -secret=abc123 -url=https://worker.example.com -rx_correction=10 -tx_correction=5"
-            exit 1
+            if [ -f "${SERVICE_FILE}" ]; then
+                step "尝试从旧版本服务文件提取参数..."
+                local exec_line
+                exec_line=$(grep "^ExecStart=" "${SERVICE_FILE}" 2>/dev/null | head -1 || echo "")
+                
+                if [ -n "${exec_line}" ]; then
+                    SERVER_ID=$(echo "$exec_line" | awk -F'"' '{print $4}' 2>/dev/null || echo "")
+                    SECRET=$(echo "$exec_line" | awk -F'"' '{print $6}' 2>/dev/null || echo "")
+                    WORKER_URL=$(echo "$exec_line" | awk -F'"' '{print $8}' 2>/dev/null || echo "")
+                    REPORT_INTERVAL=$(echo "$exec_line" | awk -F'"' '{print $10}' 2>/dev/null || echo "")
+                    PING_TYPE=$(echo "$exec_line" | awk -F'"' '{print $12}' 2>/dev/null || echo "")
+                    CT_NODE=$(echo "$exec_line" | awk -F'"' '{print $14}' 2>/dev/null || echo "")
+                    CU_NODE=$(echo "$exec_line" | awk -F'"' '{print $16}' 2>/dev/null || echo "")
+                    CM_NODE=$(echo "$exec_line" | awk -F'"' '{print $18}' 2>/dev/null || echo "")
+                    BD_NODE=$(echo "$exec_line" | awk -F'"' '{print $20}' 2>/dev/null || echo "")
+                    RESET_DAY=$(echo "$exec_line" | awk -F'"' '{print $22}' 2>/dev/null || echo "")
+                    
+                    if [ -n "${SERVER_ID}" ] && [ -n "${SECRET}" ] && [ -n "${WORKER_URL}" ]; then
+                        info "已从旧版本服务文件提取参数"
+                    else
+                        echo -e "${RED}错误: 运行所需的入参不完整。${NC}\n"
+                        echo "用法:"
+                        echo "  bash $0 install -id=SERVER_ID -secret=SECRET -url=WORKER_URL [选项]"
+                        echo ""
+                        echo "必需参数:"
+                        echo "  -id=xxx        服务器ID"
+                        echo "  -secret=xxx    密钥"
+                        echo "  -url=xxx       上报地址"
+                        echo ""
+                        echo "可选参数:"
+                        echo "  -interval=N    上报间隔(秒)，默认60"
+                        echo "  -ping=TYPE     探测类型: http | tcp，默认http"
+                        echo "  -ct=HOST       自定义CT测试节点"
+                        echo "  -cu=HOST       自定义CU测试节点"
+                        echo "  -cm=HOST       自定义CM测试节点"
+                        echo "  -bd=HOST       自定义BD测试节点"
+                        echo "  -reset_day=N   流量重置日(1-31)，默认1"
+                        echo "  -rx_correction=N  下行流量校正(GB)，修改当月下行数据"
+                        echo "  -tx_correction=N  上行流量校正(GB)，修改当月上行数据"
+                        echo ""
+                        echo "示例:"
+                        echo "  bash $0 install -id=server123 -secret=abc123 -url=https://worker.example.com"
+                        echo "  bash $0 install -id=server123 -secret=abc123 -url=https://worker.example.com -interval=30 -ping=tcp"
+                        echo "  bash $0 install -id=server123 -secret=abc123 -url=https://worker.example.com -ct=ct.example.com -cu=cu.example.com"
+                        echo "  bash $0 install -id=server123 -secret=abc123 -url=https://worker.example.com -reset_day=15"
+                        echo "  bash $0 install -id=server123 -secret=abc123 -url=https://worker.example.com -rx_correction=10 -tx_correction=5"
+                        exit 1
+                    fi
+                else
+                    echo -e "${RED}错误: 运行所需的入参不完整。${NC}\n"
+                    echo "用法:"
+                    echo "  bash $0 install -id=SERVER_ID -secret=SECRET -url=WORKER_URL [选项]"
+                    echo ""
+                    echo "必需参数:"
+                    echo "  -id=xxx        服务器ID"
+                    echo "  -secret=xxx    密钥"
+                    echo "  -url=xxx       上报地址"
+                    echo ""
+                    echo "可选参数:"
+                    echo "  -interval=N    上报间隔(秒)，默认60"
+                    echo "  -ping=TYPE     探测类型: http | tcp，默认http"
+                    echo "  -ct=HOST       自定义CT测试节点"
+                    echo "  -cu=HOST       自定义CU测试节点"
+                    echo "  -cm=HOST       自定义CM测试节点"
+                    echo "  -bd=HOST       自定义BD测试节点"
+                    echo "  -reset_day=N   流量重置日(1-31)，默认1"
+                    echo "  -rx_correction=N  下行流量校正(GB)，修改当月下行数据"
+                    echo "  -tx_correction=N  上行流量校正(GB)，修改当月上行数据"
+                    echo ""
+                    echo "示例:"
+                    echo "  bash $0 install -id=server123 -secret=abc123 -url=https://worker.example.com"
+                    echo "  bash $0 install -id=server123 -secret=abc123 -url=https://worker.example.com -interval=30 -ping=tcp"
+                    echo "  bash $0 install -id=server123 -secret=abc123 -url=https://worker.example.com -ct=ct.example.com -cu=cu.example.com"
+                    echo "  bash $0 install -id=server123 -secret=abc123 -url=https://worker.example.com -reset_day=15"
+                    echo "  bash $0 install -id=server123 -secret=abc123 -url=https://worker.example.com -rx_correction=10 -tx_correction=5"
+                    exit 1
+                fi
+            else
+                echo -e "${RED}错误: 运行所需的入参不完整。${NC}\n"
+                echo "用法:"
+                echo "  bash $0 install -id=SERVER_ID -secret=SECRET -url=WORKER_URL [选项]"
+                echo ""
+                echo "必需参数:"
+                echo "  -id=xxx        服务器ID"
+                echo "  -secret=xxx    密钥"
+                echo "  -url=xxx       上报地址"
+                echo ""
+                echo "可选参数:"
+                echo "  -interval=N    上报间隔(秒)，默认60"
+                echo "  -ping=TYPE     探测类型: http | tcp，默认http"
+                echo "  -ct=HOST       自定义CT测试节点"
+                echo "  -cu=HOST       自定义CU测试节点"
+                echo "  -cm=HOST       自定义CM测试节点"
+                echo "  -bd=HOST       自定义BD测试节点"
+                echo "  -reset_day=N   流量重置日(1-31)，默认1"
+                echo "  -rx_correction=N  下行流量校正(GB)，修改当月下行数据"
+                echo "  -tx_correction=N  上行流量校正(GB)，修改当月上行数据"
+                echo ""
+                echo "示例:"
+                echo "  bash $0 install -id=server123 -secret=abc123 -url=https://worker.example.com"
+                echo "  bash $0 install -id=server123 -secret=abc123 -url=https://worker.example.com -interval=30 -ping=tcp"
+                echo "  bash $0 install -id=server123 -secret=abc123 -url=https://worker.example.com -ct=ct.example.com -cu=cu.example.com"
+                echo "  bash $0 install -id=server123 -secret=abc123 -url=https://worker.example.com -reset_day=15"
+                echo "  bash $0 install -id=server123 -secret=abc123 -url=https://worker.example.com -rx_correction=10 -tx_correction=5"
+                exit 1
+            fi
         fi
 
         REPORT_INTERVAL=${REPORT_INTERVAL:-60}
@@ -744,33 +799,12 @@ EOF
         step "创建配置目录..."
         mkdir -p "${CONFIG_DIR}" 2>/dev/null || true
 
-        if [ -n "${RX_CORRECTION}" ] || [ -n "${TX_CORRECTION}" ]; then
-            step "应用流量校正..."
-            rm -f "${OLD_TRAFFIC_DATA_FILE}" 2>/dev/null || true
-            
-            local now_ts=$(date '+%s')
-            local rx_correction_bytes=0 tx_correction_bytes=0
-            local current_rx=$(awk 'NR>2 && $1~/^(eth|en|wl)[a-z0-9]*:/{rx+=$2}END{printf "%.0f", rx}' /proc/net/dev 2>/dev/null || echo 0)
-            local current_tx=$(awk 'NR>2 && $1~/^(eth|en|wl)[a-z0-9]*:/{tx+=$10}END{printf "%.0f", tx}' /proc/net/dev 2>/dev/null || echo 0)
-            [ -n "${RX_CORRECTION}" ] && echo "${RX_CORRECTION}" | awk '{exit($1 == 0)}' 2>/dev/null && rx_correction_bytes=$(echo "${RX_CORRECTION}" | awk '{printf "%.0f", $1 * 1024 * 1024 * 1024}')
-            [ -n "${TX_CORRECTION}" ] && echo "${TX_CORRECTION}" | awk '{exit($1 == 0)}' 2>/dev/null && tx_correction_bytes=$(echo "${TX_CORRECTION}" | awk '{printf "%.0f", $1 * 1024 * 1024 * 1024}')
-            echo "${RX_CORRECTION}" | awk '{exit($1 == 0)}' 2>/dev/null && info "下行流量校正: ${RX_CORRECTION}GB"
-            echo "${TX_CORRECTION}" | awk '{exit($1 == 0)}' 2>/dev/null && info "上行流量校正: ${TX_CORRECTION}GB"
-            
-            cat > "${TRAFFIC_DATA_FILE}" << EOF
-RX_PREV=${current_rx}
-TX_PREV=${current_tx}
-RX_PERIOD=${rx_correction_bytes}
-TX_PERIOD=${tx_correction_bytes}
-LAST_CHECK=${now_ts}
-PERIOD_START=0
-EOF
-        elif [ -f "${OLD_TRAFFIC_DATA_FILE}" ]; then
+        if [ -f "${OLD_TRAFFIC_DATA_FILE}" ]; then
             step "迁移旧流量数据..."
             mv "${OLD_TRAFFIC_DATA_FILE}" "${TRAFFIC_DATA_FILE}" 2>/dev/null || true
             rm -rf /var/lib/cf-probe 2>/dev/null || true
             info "已从旧路径迁移流量数据"
-        else
+        elif [ ! -f "${TRAFFIC_DATA_FILE}" ]; then
             touch "${TRAFFIC_DATA_FILE}" 2>/dev/null || true
             info "创建新流量数据文件"
         fi
@@ -789,6 +823,30 @@ BD_NODE="${BD_NODE:-}"
 RESET_DAY="${RESET_DAY}"
 EOF
         info "配置文件已生成: ${CONFIG_FILE}"
+    fi
+
+    if [ -n "${RX_CORRECTION}" ] || [ -n "${TX_CORRECTION}" ]; then
+        step "应用流量校正..."
+        rm -f "${OLD_TRAFFIC_DATA_FILE}" 2>/dev/null || true
+        
+        mkdir -p "${CONFIG_DIR}" 2>/dev/null || true
+        local now_ts=$(date '+%s')
+        local rx_correction_bytes=0 tx_correction_bytes=0
+        local current_rx=$(awk 'NR>2 && $1~/^(eth|en|wl)[a-z0-9]*:/{rx+=$2}END{printf "%.0f", rx}' /proc/net/dev 2>/dev/null || echo 0)
+        local current_tx=$(awk 'NR>2 && $1~/^(eth|en|wl)[a-z0-9]*:/{tx+=$10}END{printf "%.0f", tx}' /proc/net/dev 2>/dev/null || echo 0)
+        [ -n "${RX_CORRECTION}" ] && echo "${RX_CORRECTION}" | awk '{exit($1 == 0)}' 2>/dev/null && rx_correction_bytes=$(echo "${RX_CORRECTION}" | awk '{printf "%.0f", $1 * 1024 * 1024 * 1024}')
+        [ -n "${TX_CORRECTION}" ] && echo "${TX_CORRECTION}" | awk '{exit($1 == 0)}' 2>/dev/null && tx_correction_bytes=$(echo "${TX_CORRECTION}" | awk '{printf "%.0f", $1 * 1024 * 1024 * 1024}')
+        echo "${RX_CORRECTION}" | awk '{exit($1 == 0)}' 2>/dev/null && info "下行流量校正: ${RX_CORRECTION}GB"
+        echo "${TX_CORRECTION}" | awk '{exit($1 == 0)}' 2>/dev/null && info "上行流量校正: ${TX_CORRECTION}GB"
+        
+        cat > "${TRAFFIC_DATA_FILE}" << EOF
+RX_PREV=${current_rx}
+TX_PREV=${current_tx}
+RX_PERIOD=${rx_correction_bytes}
+TX_PERIOD=${tx_correction_bytes}
+LAST_CHECK=${now_ts}
+PERIOD_START=0
+EOF
     fi
 
     create_script

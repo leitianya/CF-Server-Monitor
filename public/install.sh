@@ -877,122 +877,6 @@ EOF
     echo -e "=============================================\n"
 }
 
-update_probe() {
-    local update_url="${1:-}"
-    
-    print_banner
-    echo -e "${YELLOW}[!] 开始升级 CF-Server-Monitor...${NC}\n"
-    
-    if [ -z "$update_url" ]; then
-        error "升级需要指定更新源URL: curl -sL <url> | bash -s update <url>"
-    fi
-    
-    check_root
-    detect_os
-    
-    # 检查现有配置是否存在
-    if [ ! -f "${SCRIPT_FILE}" ]; then
-        error "未找到现有探针: ${SCRIPT_FILE}，请先执行安装。"
-    fi
-    
-    info "检测到现有探针，将直接更新脚本..."
-    
-    step "正在下载最新安装脚本..."
-    local temp_script="/tmp/cf-probe-install-$$.sh"
-    if ! curl -sL "$update_url" -o "$temp_script" 2>/dev/null; then
-        rm -f "$temp_script"
-        error "下载失败，请检查URL是否可访问: $update_url"
-    fi
-    
-    if ! grep -q "install_probe" "$temp_script" 2>/dev/null; then
-        rm -f "$temp_script"
-        error "下载的脚本无效。"
-    fi
-    
-    # 提取新版本探针脚本内容
-    step "提取新版本探针脚本..."
-    # 查找包含 << 'PROBE_EOF' 的行（heredoc开始标记），提取之后的内容直到单独的 PROBE_EOF
-    local start_line
-    start_line=$(grep -n "<< 'PROBE_EOF'" "$temp_script" 2>/dev/null | head -1 | cut -d: -f1 || true)
-    if [ -z "$start_line" ]; then
-        rm -f "$temp_script"
-        error "无法找到探针内容起始标记 (heredoc start)。"
-    fi
-    
-    # 提取heredoc内容（从下一行开始，直到单独的PROBE_EOF）
-    new_probe_content=$(tail -n +$((start_line + 1)) "$temp_script" 2>/dev/null | sed -n '/^PROBE_EOF$/q;p' || true)
-    
-    if [ -z "$new_probe_content" ]; then
-        rm -f "$temp_script"
-        error "无法提取探针内容，请确认下载的脚本包含有效的探针代码。"
-    fi
-    
-    # 停止旧服务
-    step "停止服务..."
-    if systemctl is-active --quiet "${SERVICE_NAME}.service" 2>/dev/null; then
-        systemctl stop "${SERVICE_NAME}.service" 2>/dev/null || true
-    fi
-    
-    # 写入新探针脚本
-    step "更新探针脚本..."
-    echo "$new_probe_content" > "${SCRIPT_FILE}"
-    
-    chmod +x "${SCRIPT_FILE}"
-    
-    # 重启服务
-    step "重启服务..."
-    systemctl daemon-reload
-    systemctl enable ${SERVICE_NAME}.service >/dev/null 2>&1 || true
-    systemctl restart ${SERVICE_NAME}.service
-    
-    rm -f "$temp_script"
-    
-    sleep 1
-    if systemctl is-active --quiet ${SERVICE_NAME}.service; then
-        local s_id="" s_sec="" s_url="" s_interval="60" s_ping="http" s_ct="" s_cu="" s_cm="" s_bd="" s_reset="1"
-        
-        if [ -f "${CONFIG_FILE}" ]; then
-            while IFS='=' read -r key value; do
-                case "$key" in
-                    SERVER_ID) s_id="${value%\"}"; s_id="${s_id#\"}" ;;
-                    SECRET) s_sec="${value%\"}"; s_sec="${s_sec#\"}" ;;
-                    WORKER_URL) s_url="${value%\"}"; s_url="${s_url#\"}" ;;
-                    REPORT_INTERVAL) s_interval="${value%\"}"; s_interval="${s_interval#\"}" ;;
-                    PING_TYPE) s_ping="${value%\"}"; s_ping="${s_ping#\"}" ;;
-                    CT_NODE) s_ct="${value%\"}"; s_ct="${s_ct#\"}" ;;
-                    CU_NODE) s_cu="${value%\"}"; s_cu="${s_cu#\"}" ;;
-                    CM_NODE) s_cm="${value%\"}"; s_cm="${s_cm#\"}" ;;
-                    BD_NODE) s_bd="${value%\"}"; s_bd="${s_bd#\"}" ;;
-                    RESET_DAY) s_reset="${value%\"}"; s_reset="${s_reset#\"}" ;;
-                esac
-            done < "${CONFIG_FILE}"
-        fi
-        
-        echo -e "\n${GREEN}============================================="
-        echo -e "         CF-Server-Monitor 升级成功"
-        echo -e "=============================================${NC}"
-        echo -e "  服务状态 : ${GREEN}Active (Running)${NC}"
-        echo -e "  配置参数 :"
-        echo -e "    ● Server ID   : ${s_id}"
-        echo -e "    ● Secret      : ${s_sec}"
-        echo -e "    ● Worker URL  : ${s_url}"
-        echo -e "    ● 上报间隔    : ${s_interval}秒"
-        echo -e "    ● 探测类型    : ${s_ping}"
-        echo -e "    ● 流量重置日  : ${s_reset}号"
-        [ -n "${s_ct}" ] && echo -e "    ● CT节点      : ${s_ct}"
-        [ -n "${s_cu}" ] && echo -e "    ● CU节点      : ${s_cu}"
-        [ -n "${s_cm}" ] && echo -e "    ● CM节点      : ${s_cm}"
-        [ -n "${s_bd}" ] && echo -e "    ● BD节点      : ${s_bd}"
-        echo -e "  管理指令 :"
-        echo -e "    ● 查看实时日志 : journalctl -u ${SERVICE_NAME} -f"
-        echo -e "    ● 查看运行状态 : systemctl status ${SERVICE_NAME}"
-        echo -e "    ● 停止探针服务 : systemctl stop ${SERVICE_NAME}"
-        echo -e "=============================================\n"
-    else
-        error "服务启动失败，请检查: journalctl -u ${SERVICE_NAME} -n 20"
-    fi
-}
-
 uninstall_probe() {
     print_banner
     echo -e "${YELLOW}[!] 开始执行无残留深度卸载清理方案...${NC}\n"
@@ -1039,12 +923,8 @@ case "${1:-install}" in
     uninstall|remove|delete|purge)
         uninstall_probe
         ;;
-    update|upgrade)
-        shift 1 2>/dev/null || true
-        update_probe "$@"
-        ;;
     *)
-        echo "未知指令. 可选命令: install | uninstall | update"
+        echo "未知指令. 可选命令: install | uninstall"
         exit 1
         ;;
 esac
